@@ -10,12 +10,14 @@ import com.alibaba.datax.plugin.rdbms.writer.Constant;
 import com.alibaba.datax.plugin.rdbms.writer.Key;
 import com.alibaba.druid.sql.parser.ParserException;
 import org.apache.commons.lang3.StringUtils;
+import org.omg.CosNaming._BindingIteratorImplBase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
 import java.sql.Connection;
 import java.sql.Statement;
 import java.util.*;
+import java.util.stream.Collectors;
 
 public final class WriterUtil {
     private static final Logger LOG = LoggerFactory.getLogger(WriterUtil.class);
@@ -131,18 +133,102 @@ public final class WriterUtil {
                     .append(onDuplicateKeyUpdateString(columnHolders))
                     .toString();
         } else {
-
-            //这里是保护,如果其他错误的使用了update,需要更换为replace
-            if (writeMode.trim().toLowerCase().startsWith("update")) {
-                writeMode = "replace";
+                // 新增达梦数据库
+            if (dataBaseType == DataBaseType.DAMENG){
+                writeDataSqlTemplate = onDuplicateKeyMergeString(writeMode, columnHolders);
+            }else{
+                //这里是保护,如果其他错误的使用了update,需要更换为replace
+                if (writeMode.trim().toLowerCase().startsWith("update")) {
+                    writeMode = "replace";
+                }
+                writeDataSqlTemplate = new StringBuilder().append(writeMode)
+                        .append(" INTO %s (").append(StringUtils.join(columnHolders, ","))
+                        .append(") VALUES(").append(StringUtils.join(valueHolders, ","))
+                        .append(")").toString();
             }
-            writeDataSqlTemplate = new StringBuilder().append(writeMode)
-                    .append(" INTO %s (").append(StringUtils.join(columnHolders, ","))
-                    .append(") VALUES(").append(StringUtils.join(valueHolders, ","))
-                    .append(")").toString();
+
         }
 
         return writeDataSqlTemplate;
+    }
+    public static String onDuplicateKeyMergeString(String writeMode, List<String> columnHolders) {
+        //构建 USING 子查询部分（带占位符）
+        StringJoiner srcColumns = new StringJoiner(", ");
+        StringJoiner placeholders = new StringJoiner(", ");
+        for (String column : columnHolders) {
+            srcColumns.add("? AS " + column);
+            placeholders.add("?");
+        }
+
+        //构建 MERGE INTO
+        StringBuilder sqlBuilder = new StringBuilder().append("MERGE INTO %s as tgt USING (SELECT ")
+                .append(srcColumns)
+                .append(" FROM DUAL) AS src ");
+
+        // 构建 ON 条件（唯一索引匹配）
+        List<String> uniqueColumns = parseUniqueColumns(writeMode);
+        // 验证唯一索引字段有效性
+        for (String col : uniqueColumns) {
+            if (!columnHolders.contains(col)) {
+                throw new IllegalArgumentException("Unique column '" + col + "' not found in field list");
+            }
+        }
+        sqlBuilder.append(" ON ( ");
+        StringJoiner onConditions = new StringJoiner(" AND ");
+        for (String column : uniqueColumns) {
+            onConditions.add("tgt." + column + " = src." + column);
+        }
+        sqlBuilder.append(onConditions).append(") ");
+
+        // 构建 UPDATE SET 部分（排除唯一索引列）
+        sqlBuilder.append(" WHEN MATCHED THEN UPDATE SET ");
+        StringJoiner updateSet = new StringJoiner(", ");
+        for (String column : columnHolders) {
+            //if (!column.equals(uniqueColumn)) {
+            if (!uniqueColumns.contains(column)) {
+                updateSet.add(" tgt." + column + " = src." + column);
+            }
+        }
+        sqlBuilder.append(updateSet);
+
+        // 构建 INSERT 部分
+        sqlBuilder.append(" WHEN NOT MATCHED THEN INSERT ");
+        StringJoiner insertColumns = new StringJoiner(", ", " (", ")");
+        StringJoiner insertValues = new StringJoiner(", ", " VALUES (", ");");
+        for (String column : columnHolders) {
+            insertColumns.add(column);
+            insertValues.add("src." + column);
+        }
+        sqlBuilder.append(insertColumns).append(insertValues);
+        System.out.print(sqlBuilder.toString());
+        return sqlBuilder.toString();
+    }
+
+    /**
+     * 解析 writeMode 配置获取唯一索引字段列表
+     *
+     * @param writeMode 配置字符串，格式示例：
+     *        "update(id)"              -> 单字段唯一索引
+     *        "update(id,user_id)"      -> 多字段组合唯一索引
+     *        "update( "id" , user_id)" -> 带空格的复杂格式
+     *        null 或空值                 -> 使用默认字段名"id"
+     */
+    private static List<String> parseUniqueColumns(String writeMode) {
+        // 默认使用 "id" 作为唯一索引
+        if (StringUtils.isBlank(writeMode)||writeMode=="update") {
+            return Collections.singletonList("id");
+        }
+
+        // 提取括号内的内容
+        String content = writeMode
+                .replaceFirst(".*?\\(", "")  // 移除前缀和左括号
+                .replaceAll("\\)$", "");     // 移除右括号
+
+        // 分割多个字段并清理空白
+        return Arrays.stream(content.split(","))
+                .map(String::trim)           // 移除前后空格
+                .filter(s -> !s.isEmpty())   // 过滤空字段
+                .collect(Collectors.toList());
     }
 
     public static String onDuplicateKeyUpdateString(List<String> columnHolders){

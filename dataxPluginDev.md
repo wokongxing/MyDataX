@@ -148,7 +148,7 @@ public class SomeReader extends Reader {
 ```json
 {
     "name": "mysqlwriter",
-    "class": "com.alibaba.datax.plugin.writer.mysqlwriter.MysqlWriter",
+    "class": "com.alibaba.datax.plugin.writer.dmwriter.MysqlWriter",
     "description": "Use Jdbc connect to database, execute insert sql.",
     "developer": "alibaba"
 }
