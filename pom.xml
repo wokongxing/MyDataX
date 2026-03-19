@@ -83,7 +83,7 @@
 <!--        <module>starrocksreader</module>-->
 
         <!-- writer -->
-<!--        <module>mysqlwriter</module>-->
+        <module>mysqlwriter</module>
 <!--        <module>elasticsearchwriter</module>-->
 <!--        <module>starrockswriter</module>-->
 <!--        <module>drdswriter</module>-->

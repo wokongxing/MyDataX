@@ -99,7 +99,7 @@ public final class OriginalConfPretreatmentUtil {
             originalConfig.set(String.format("%s[%d].%s", Constant.CONN_MARK,
                     i, Key.JDBC_URL), jdbcUrl);
 
-            LOG.info("Available jdbcUrl:{}.",jdbcUrl);
+//            LOG.info("Available jdbcUrl:{}.",jdbcUrl);
 
             if (isTableMode) {
                 // table 方式
